@@ -1,0 +1,6 @@
+managed_components
+build
+core
+__pycache__/
+qrcode.png
+sdkconfig

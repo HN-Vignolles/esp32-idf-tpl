@@ -73,7 +73,36 @@ void app_main(void)
     int cnt = 0, tab = 0;
     uint8_t write_buf[2] = { 0x42, 0x33 };
 
+    /* FatFs */
+    const esp_vfs_fat_mount_config_t mount_config = {
+        .max_files = 4,
+        .format_if_mount_failed = false,
+        .allocation_unit_size = CONFIG_WL_SECTOR_SIZE
+    };
+    esp_err_t err = esp_vfs_fat_spiflash_mount_rw_wl(base_path, "storage", &mount_config, &s_wl_handle);
+    if (err != ESP_OK) {
+        printf("Failed to mount FATFS (%s)\n", esp_err_to_name(err));
+        return;
+    }
+    char *device_filename = "/test.txt";
+    f = fopen(device_filename, "r");
+    if (f == NULL) {
+        printf("Failed to open the csv file\n");
+        return;
+    }
+    char line[256];
+    char output[256];
+    uint8_t *bytes;
+    uint32_t last_bytes03 = 0;
+    size_t bytes_size;
+    uint32_t log_timestamp;
+    while (fgets(line, sizeof(line), f) != NULL) {
+        printf("%s\n", line);
+    }
+    fclose(f);
+
     do_provisioning();
+
     while (1) {
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
