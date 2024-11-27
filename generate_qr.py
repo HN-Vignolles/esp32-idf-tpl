@@ -17,7 +17,6 @@ def main():
     if result.returncode != 0:
         sys.exit(1)
 
-    #result = 'esptool.py v4.6.2\nFound 2 serial ports\nSerial port /dev/ttyUSB0\nConnecting....\nDetecting chip type... Unsupported detection protocol, switching and trying again...\nConnecting.......\nDetecting chip type... ESP32\nChip is ESP32-D0WDQ6 (revision v1.0)\nFeatures: WiFi, BT, Dual Core, 240MHz, VRef calibration in efuse, Coding Scheme None\nCrystal is 26MHz\nMAC: ec:62:60:a1:b2:5c\nUploading stub...\nRunning stub...\nStub running...\nMAC: 7c:9e:bd:5b:2d:80\nHard resetting via RTS pin...\n'
     m = re.search(r"MAC: (..:){3}(..):(..):(..)", result.stdout)
     qr_str = f'{{"ver":"v1","name":"PROV_{(m[2] + m[3] + m[4]).upper()}","username":"{user}","pop":"{password}","transport":"softap"}}'
     print(qr_str)
