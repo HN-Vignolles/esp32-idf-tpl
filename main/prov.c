@@ -15,7 +15,7 @@
 #include <string.h>
 
 #include "prov.h"
-#include "wifi_pwd.h"
+//#include "wifi_pwd.h"
 
 static const char *TAG = "provisioning";
 
