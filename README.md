@@ -34,3 +34,9 @@ idf.py build
 ```bash
 openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout server_certs/server_key.pem -out server_certs/server_cert.pem  # Common Name = server IP
 ```
+
+## mDNS
+```bash
+avahi-browse --all
+```
+
