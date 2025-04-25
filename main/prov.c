@@ -406,6 +406,12 @@ void do_provisioning(void) {
 #endif /* FAST_DEV */
     /* Wait for Wi-Fi connection */
     xEventGroupWaitBits(wifi_event_group, WIFI_CONNECTED_EVENT, true, true, portMAX_DELAY);
+    ESP_LOGI(TAG, "Adding mDNS services...");
+    char *hostname = "ESP32-BEEF";
+    ESP_ERROR_CHECK(mdns_init());
+    ESP_ERROR_CHECK(mdns_hostname_set(hostname));
+    ESP_ERROR_CHECK(mdns_instance_name_set("esp32 interface mDNS"));
+    mdns_service_add(NULL, "_turbo", "_tcp", 18001, NULL, 0);
 }
 
 void get_device_service_name(char *service_name, size_t max)
