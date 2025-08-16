@@ -12,6 +12,7 @@
 #include <esp_log.h>
 #include <esp_flash_partitions.h>
 #include <esp_partition.h>
+#include <driver/gpio.h>
 #include <nvs_flash.h>
 
 #include "prov.h"

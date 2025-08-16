@@ -15,7 +15,6 @@
 #include <string.h>
 
 #include "prov.h"
-//#include "wifi_pwd.h"
 
 static const char *TAG = "provisioning";
 
@@ -24,6 +23,7 @@ static const char *TAG = "provisioning";
 #define PROV_TRANSPORT_BLE  "ble"
 #define PROV_QR_VERSION     "v1"
 #define QRCODE_BASE_URL     "https://espressif.github.io/esp-jumpstart/qrcode.html"
+#define UNUSED(x) (void)(x)
 
 /* #if CONFIG_PROV_SEC2_DEV_MODE */
 /* USERNAME and PWD set in create_salted_verification.py */
@@ -42,6 +42,9 @@ static const char *TAG = "provisioning";
 #ifdef CONFIG_PROV_SECURITY_VERSION_1
 #error "CONFIG_PROV_SECURITY_VERSION_2 should be set"
 #endif /* CONFIG_PROV_SECURITY_VERSION_1 */
+#ifndef CONFIG_RESET_PROV_MGR_ON_FAILURE
+#error "CONFIG_RESET_PROV_MGR_ON_FAILURE should be set"
+#endif
 
 
 /* #if CONFIG_PROV_SECURITY_VERSION_2 */
@@ -228,7 +231,16 @@ void do_provisioning(void) {
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler, NULL));
 
     /* Initialize Wi-Fi including netif with default config */
-    esp_netif_create_default_wifi_sta();
+    esp_netif_t *sta = esp_netif_create_default_wifi_sta();
+    UNUSED(sta);
+    /* static IP */
+    /*esp_netif_dhcpc_stop(sta);
+    esp_netif_ip_info_t ip_info;
+    IP4_ADDR(&ip_info.ip, 192, 168, 1, 150);
+    IP4_ADDR(&ip_info.gw, 192, 168, 1, 1);
+    IP4_ADDR(&ip_info.netmask, 255, 255, 255, 0);
+    esp_netif_set_ip_info(sta, &ip_info);*/
+
 #ifdef CONFIG_PROV_TRANSPORT_SOFTAP
     esp_netif_create_default_wifi_ap();
 #endif /* CONFIG_PROV_TRANSPORT_SOFTAP */
@@ -266,7 +278,7 @@ void do_provisioning(void) {
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     wifi_config_t wifi_config = {
         .sta = {
-            .ssid = WIFI_SSID, .password = WIFI_PASS,
+            .ssid = CONFIG_ESP_WIFI_SSID, .password = CONFIG_ESP_WIFI_PASSWORD,
             .threshold.authmode = ESP_WIFI_SCAN_AUTH_MODE_THRESHOLD, .sae_pwe_h2e = WPA3_SAE_PWE_BOTH,
         },
     };
@@ -310,6 +322,8 @@ void do_provisioning(void) {
          * In production this password field shall not be stored on the device */
         const char *username  = EXAMPLE_PROV_SEC2_USERNAME;
         const char *pop = EXAMPLE_PROV_SEC2_PWD;
+        UNUSED(username);
+        UNUSED(pop);
 #elif CONFIG_PROV_SEC2_PROD_MODE
         /* The username and password shall not be embedded in the firmware,
          * they should be provided to the user by other means.
@@ -406,12 +420,15 @@ void do_provisioning(void) {
 #endif /* FAST_DEV */
     /* Wait for Wi-Fi connection */
     xEventGroupWaitBits(wifi_event_group, WIFI_CONNECTED_EVENT, true, true, portMAX_DELAY);
-    ESP_LOGI(TAG, "Adding mDNS services...");
-    char *hostname = "ESP32-BEEF";
+    char hostname[13];
+    uint8_t eth_mac[6];
+    esp_wifi_get_mac(WIFI_IF_STA, eth_mac);
+    snprintf(hostname, sizeof(hostname), "%s-%02x%02x%02x",
+             "ESP32", eth_mac[3], eth_mac[4], eth_mac[5]);
     ESP_ERROR_CHECK(mdns_init());
     ESP_ERROR_CHECK(mdns_hostname_set(hostname));
     ESP_ERROR_CHECK(mdns_instance_name_set("esp32 interface mDNS"));
-    mdns_service_add(NULL, "_turbo", "_tcp", 18001, NULL, 0);
+    mdns_service_add(NULL, "_srv", "_tcp", 10000, NULL, 0);
 }
 
 void get_device_service_name(char *service_name, size_t max)
