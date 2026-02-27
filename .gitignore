@@ -4,3 +4,4 @@ core
 __pycache__/
 qrcode.png
 sdkconfig
+dependencies.lock

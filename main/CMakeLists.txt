@@ -3,7 +3,8 @@ idf_component_register(SRCS "app_main.c" "prov.c"
 #           utils.c
 #           EMBED_TXTFILES ../server_certs/server_cert.pem
             INCLUDE_DIRS "."
-            REQUIRES lwip)
+            REQUIRES lwip mbedtls driver
+            PRIV_REQUIRES nvs_flash bootloader_support esp_timer esp_wifi fatfs app_update wifi_provisioning esp_http_client esp-tls)
 
 nvs_create_partition_image(nvs ../nvs_data.csv FLASH_IN_PROJECT)
 
