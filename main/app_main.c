@@ -85,7 +85,7 @@ void app_main(void)
         printf("Failed to mount FATFS (%s)\n", esp_err_to_name(err));
         return;
     }
-    char *device_filename = "/test.txt";
+    char *device_filename = "/spiflash/test.txt";
     f = fopen(device_filename, "r");
     if (f == NULL) {
         printf("Failed to open the csv file\n");
