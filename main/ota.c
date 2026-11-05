@@ -7,6 +7,9 @@
 #include <esp_app_format.h>
 #include <nvs_flash.h>
 #include <string.h>
+#include <freertos/task.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/portmacro.h>
 
 #define BUFFSIZE 1024
 #define HASH_LEN 32 /* SHA-256 digest length */
@@ -25,11 +28,9 @@ static void http_cleanup(esp_http_client_handle_t client)
     esp_http_client_cleanup(client);
 }
 
-esp_err_t perform_ota(void) {
+esp_err_t perform_ota(int idx) {
     esp_err_t err;
     esp_ota_handle_t update_handle = 0;
-    int retries = 10;
-
     const esp_partition_t *configured = esp_ota_get_boot_partition();
     const esp_partition_t *running = esp_ota_get_running_partition();
     const esp_partition_t *update_partition = esp_ota_get_next_update_partition(NULL);
@@ -42,56 +43,68 @@ esp_err_t perform_ota(void) {
     ESP_LOGI(TAG, "Next partition for OTA: \'%s\'", update_partition->label);
 
     ESP_LOGI(TAG, "OTA_STR: \'%s\'", CONFIG_OTA_STR);
-    
-    esp_err_t ret;
-    nvs_handle_t nvs_handle;
-    size_t str_len = 0;
-    char* str_val = NULL;
-    ret = nvs_open_from_partition("nvs", "app", NVS_READONLY, &nvs_handle);  // Open the pre-filled NVS partition called "nvs", namespace = "app"
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Error (%s) opening NVS handle!\n", esp_err_to_name(ret));
-    } else {
-        ret = nvs_get_str(nvs_handle, "ota_url", NULL, &str_len);  // get the length of the string
-        ESP_ERROR_CHECK(ret);
-        str_val = (char*) malloc(str_len);
-        ret = nvs_get_str(nvs_handle, "ota_url", str_val, &str_len);
-        ESP_ERROR_CHECK(ret);
-        printf(">>>>> ota_url: %s\n", str_val);
-        free(str_val);
-    }
 
-    esp_http_client_config_t config = {
-        //.url = CONFIG_FIRMWARE_UPG_URL,
-        .host = "192.168.1.74", /* FIXME: --> nvs */
-        .port = 8088,
-        .path = "/ota-1.bin",
-        //.cert_pem = (char *)server_cert_pem_start,
-        .skip_cert_common_name_check = true,
-        .timeout_ms = 10 * CONFIG_OTA_RECV_TIMEOUT,
-        .keep_alive_enable = true,
-        //.event_handler = _http_event_handler,
+    esp_http_client_config_t config[2] = {
+        {
+            .host = "host.local",
+            .port = 8088,
+            .path = "/ota-1.bin",
+            //.cert_pem = (char *)server_cert_pem_start,
+            .skip_cert_common_name_check = true,
+            .timeout_ms = 10 * CONFIG_OTA_RECV_TIMEOUT,
+            .keep_alive_enable = true,
+            //.event_handler = _http_event_handler,
+        },{
+            .url = NULL, //"http://192.168.1.38:8088/ota-1.bin",
+            //.cert_pem = (char *)server_cert_pem_start,
+            .skip_cert_common_name_check = true,
+            .timeout_ms = 10 * CONFIG_OTA_RECV_TIMEOUT,
+            .keep_alive_enable = true,
+        }
     };
     esp_http_client_handle_t client;
-    ESP_LOGI(TAG, "trying %s:%d%s", config.host, config.port, config.path);
 
-    while (retries--) {
-        client = esp_http_client_init(&config);
-        if (client == NULL) {
-            ESP_LOGE(TAG, "Failed to initialise HTTP connection");
-            continue;
-        }
-        err = esp_http_client_open(client, 0);
+    nvs_handle_t nvs_handle;
+    size_t str_len = 0;
+    err = nvs_open_from_partition("nvs", "app", NVS_READONLY, &nvs_handle);  // Open the pre-filled NVS partition called "nvs", namespace = "app"
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Error (%s) opening NVS handle!", esp_err_to_name(err));
+        return ESP_FAIL;
+    } else {
+        err = nvs_get_str(nvs_handle, "ota_url", NULL, &str_len);  // get the length of the string
         if (err != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to open HTTP connection: %s", esp_err_to_name(err));
-            esp_http_client_cleanup(client);
-            continue;
-        } else {
-            break;
+            ESP_LOGE(TAG, "Error: nvs_get_str (%s)", esp_err_to_name(err));
+            return ESP_FAIL;
         }
+        config[1].url = (char*) malloc(str_len);
+        err = nvs_get_str(nvs_handle, "ota_url", (char*)config[1].url, &str_len);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Error: nvs_get_str (%s)", esp_err_to_name(err));
+            free(config[1].url);
+            return ESP_FAIL;
+        }
+        printf("[nvs] ota_url: %s\n", config[1].url);
     }
 
-    if (retries <= 0)
+    ESP_LOGD(TAG, "idx: %d [%d]", idx, idx % 2);
+    if (config[idx % 2].host != NULL) {
+        ESP_LOGI(TAG, "Trying host: %s", config[idx % 2].host);
+    }
+    if (config[idx % 2].url != NULL) {
+        ESP_LOGI(TAG, "Trying url: %s", config[idx % 2].url);
+    }
+    client = esp_http_client_init(&config[idx % 2]);
+    if (client == NULL) {
+        ESP_LOGE(TAG, "Failed to initialise HTTP connection");
         return ESP_FAIL;
+    }
+    err = esp_http_client_open(client, 0);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to open HTTP connection: %s [%d]", esp_err_to_name(err), idx);
+        esp_http_client_cleanup(client);
+        return ESP_FAIL;
+    }
+
     esp_http_client_fetch_headers(client);
     int binary_file_length = 0;
     bool image_header_was_checked = false; //!< deal with all received packets
