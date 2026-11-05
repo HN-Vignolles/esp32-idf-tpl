@@ -16,3 +16,4 @@ dependencies:
   #   # All dependencies of `main` are public by default.
   #   public: true
   espressif/network_provisioning: "*"
+  espressif/led_strip: "^3.0.0"

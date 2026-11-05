@@ -239,8 +239,6 @@ static void event_handler(void* arg, esp_event_base_t event_base,
 }
 
 void do_provisioning(void) {
-    char service_name[12];
-
     ESP_ERROR_CHECK(esp_netif_init());  // Initialize TCP/IP
 
     /* Initialize the event loop */
@@ -328,13 +326,15 @@ void do_provisioning(void) {
 #endif
     /* If device is not yet provisioned start provisioning service */
     if (!provisioned) {
-        ESP_LOGI(TAG, "Starting provisioning");
-
         /* What is the Device Service Name that we want
          * This translates to :
          *     - Wi-Fi SSID when scheme is network_prov_scheme_softap
          *     - device name when scheme is wifi_prov_scheme_ble
          */
+        char service_name[12];
+        get_device_service_name(service_name, sizeof(service_name));
+        ESP_LOGI(TAG, "Starting provisioning with service name: %s", service_name);
+
 #ifdef CONFIG_PROV_SECURITY_VERSION_1
 #error "CONFIG_PROV_SECURITY_VERSION_2 should be set"
 #elif CONFIG_PROV_SECURITY_VERSION_2
@@ -458,7 +458,7 @@ void get_device_service_name(char *service_name, size_t max)
 {
     uint8_t eth_mac[6];
     const char *ssid_prefix = "PROV_";
-    esp_wifi_get_mac(WIFI_IF_STA, eth_mac);
+    ESP_ERROR_CHECK(esp_wifi_get_mac(WIFI_IF_STA, eth_mac));
     snprintf(service_name, max, "%s%02X%02X%02X",
              ssid_prefix, eth_mac[3], eth_mac[4], eth_mac[5]);
 }

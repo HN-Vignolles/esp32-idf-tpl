@@ -21,6 +21,8 @@
 
 .view-controls{display:flex;align-items:center;background:#111d2d;border-bottom:1px solid #26384b}.view-controls .tabs{flex:1;border-bottom:0}.view-controls>.mobile-menu{margin-left:12px}.capability-label{font-size:10px;color:#91a8c0;margin-top:13px;font-weight:700}.cap-list .direct-cap{border-color:#347a7f;background:#183d47;color:#a6ece0}.cap-list .rtc-cap{border-color:#605377;background:#2a2943;color:#d2bdf4}.route-note{margin-top:11px;padding:10px 11px;border:1px solid #34516b;border-radius:8px;background:#13283a;font-size:11px;color:#a4bfd5;line-height:1.55}.route-note strong{display:block;color:#b9e8e1;margin-bottom:3px}.routing-help{margin-top:16px;font-size:11px;color:#90a5ba;line-height:1.55}.routing-help summary{cursor:pointer;color:#b3ccdf;font-weight:650}.routing-help p{margin:9px 0 0}.routing-help strong{color:#c5d6e8}.pin-button.native-route{box-shadow:inset 0 -2px 0 var(--cyan)}.brand-title{white-space:nowrap}
 @media(max-width:600px){.brand-title{font-size:16px;letter-spacing:-.6px}.topbar>.btn{padding:9px 10px;font-size:11px}.topbar>.btn svg{display:none}.view-controls .tabs{padding:0 12px;gap:16px}}
+.bottom-pin-cell{min-width:0}.bottom-pin-cell>.pin-button{width:100%;max-width:none}.bottom-pin-label{display:block;min-height:1.2em;margin-top:5px;color:#68ddcd;font-size:9px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.assignment-mode{display:block;color:var(--muted);font-size:10px;margin-top:5px}.list-table .tag{display:inline-block;max-width:100%;overflow-wrap:anywhere}
+.form-select[aria-invalid="true"]{border-color:var(--red)}.label-error{color:var(--red)}#gpioMacroHint,.label-error{overflow-wrap:anywhere}
 </style>
 </head>
 <body>
@@ -123,7 +125,7 @@ const hardwareLabels = {
 };
 const signalHardware = Object.fromEntries(Object.entries(hardwareLabels).map(([hw,sig])=>[sig,hw]));
 const RTC_I2C = {0:'sar_i2c_scl_0',1:'sar_i2c_sda_0',2:'sar_i2c_scl_1',3:'sar_i2c_sda_1'};
-let state = {board:'devkit-n8',assignments:{...BOARD['devkit-n8'].default},selected:38,armed:null,tab:'pinout',openGroups:new Set(['gpio','uart','i2c','system','board']),search:''};
+let state = {board:'devkit-n8',assignments:{...BOARD['devkit-n8'].default},gpioLabels:{},selected:38,armed:null,tab:'pinout',openGroups:new Set(['gpio','uart','i2c','system','board']),search:''};
 let modalCode = '';
 let toastTimer;
 
@@ -136,6 +138,7 @@ function exposedPins(board=currentBoard()) {
   return [...new Set(Object.values(board.layout).flat().map(row=>row.pin).filter(isGPIO))].sort((a,b)=>a-b);
 }
 function reservation(pin,board=currentBoard()) { return board.reserves.find(r=>r.pins.includes(pin)); }
+function reservedSignal(pin) { return reservation(pin)?.signals?.[pin]; }
 function isReserved(pin) { return !!reservation(pin); }
 function boardConnection(pin) { return currentBoard().connections[pin]; }
 function onBoardDetails(pin) { return boardConnection(pin)?.description || null; }
@@ -164,6 +167,39 @@ function signalLabel(sig) {
   return sig.replace('GPIO_OPEN_DRAIN','GPIO open-drain').replace('GPIO_INPUT','GPIO input').replace('GPIO_OUTPUT','GPIO output').replace('RGB_LED','RGB LED data');
 }
 function shorthand(sig) { return sig ? sig.replace('UART','U').replace('GPIO_','').replace('RGB_LED','RGB').replace('I2C','I²C').replace('LEDC_','PWM_') : ''; }
+function isGPIOAssignment(sig) { return signalGroup[sig]==='gpio'; }
+function assignmentLabel(pin,sig=state.assignments[pin]) {
+  return isGPIOAssignment(sig) ? state.gpioLabels[pin] || `${shorthand(sig)}_${pin}` : shorthand(sig);
+}
+function macroName(pin,sig=state.assignments[pin]) {
+  const suffix = isGPIOAssignment(sig) && state.gpioLabels[pin] ? state.gpioLabels[pin]
+    : sig==='USB_D-' ? 'USB_DM' : sig==='USB_D+' ? 'USB_DP'
+    : isGPIOAssignment(sig) ? `${sig}_${pin}` : sig;
+  return `PIN_${suffix}`;
+}
+function gpioLabelError(pin) {
+  const label = state.gpioLabels[pin] || '';
+  if (label && !/^[A-Za-z][A-Za-z0-9_]{0,39}$/.test(label)) return 'Start with a letter. Use up to 40 letters, digits or underscores; no spaces or special characters.';
+  if (label.includes('__')) return 'Double underscores are reserved. Use a single underscore between words.';
+  const macro = macroName(pin);
+  const other = Object.keys(state.assignments).find(key=>Number(key)!==Number(pin) && macroName(key)===macro);
+  return other===undefined ? '' : `${macro} is already used by GPIO${other}. Choose a different signal name.`;
+}
+function gpioLabelIssues() {
+  return Object.entries(state.assignments).filter(([,sig])=>isGPIOAssignment(sig)).flatMap(([pin])=>{
+    const error = gpioLabelError(pin);
+    return error ? [{pin:Number(pin),error}] : [];
+  });
+}
+function updateGPIOLabelValidity(pin) {
+  const input = $('gpioLabel'), error = gpioLabelError(pin);
+  input.setCustomValidity(error);
+  input.setAttribute('aria-invalid',String(!!error));
+  $('gpioLabelError').textContent = error;
+  $('gpioLabelError').classList.toggle('hidden',!error);
+  $('gpioMacroHint').textContent = error ? 'Correct the signal name before generating code.' : `Generated macro: ${macroName(pin)}`;
+}
+function clearAssignment(pin) { delete state.assignments[pin];delete state.gpioLabels[pin]; }
 function matrixPriority(pin) {
   if (pin>=26 && pin<=32) return 4;
   return strapping[pin] || [19,20,39,40,41,42,43,44,33,34,35,36,37].includes(pin) ? 3 : 2;
@@ -211,11 +247,17 @@ function load() {
         if (typeof sig==='string' && !checkAssignable(sig,pin) && (sig.startsWith('GPIO_') || !Object.values(state.assignments).includes(sig))) state.assignments[pin] = sig;
       }
     }
+    state.gpioLabels = {};
+    if (saved.gpioLabels && typeof saved.gpioLabels==='object' && !Array.isArray(saved.gpioLabels)) {
+      for (const [pin,label] of Object.entries(saved.gpioLabels)) {
+        if (isGPIOAssignment(state.assignments[pin]) && typeof label==='string' && label) state.gpioLabels[pin] = label;
+      }
+    }
     state.selected = exposedPins().includes(saved.selected) ? saved.selected : exposedPins()[0];
   } catch (e) { console.warn('ESP32 PIN STUDIO: saved state unavailable',e); }
 }
 function save() {
-  try { localStorage.setItem('pinflow_s3_v1',JSON.stringify({board:state.board,selected:state.selected,assignments:state.assignments})); } catch {}
+  try { localStorage.setItem('pinflow_s3_v1',JSON.stringify({board:state.board,selected:state.selected,assignments:state.assignments,gpioLabels:state.gpioLabels})); } catch {}
 }
 function showToast(message,bad=false) {
   const el = $('toast');
@@ -225,7 +267,7 @@ function showToast(message,bad=false) {
   toastTimer = setTimeout(()=>el.classList.add('hidden'),2900);
 }
 function diagnosticData() {
-  const result = [];
+  const result = gpioLabelIssues().map(({pin,error})=>({type:'error',title:`GPIO${pin} · Invalid signal name`,desc:error}));
   for (const [key,sig] of Object.entries(state.assignments)) {
     const pin = Number(key), err = checkAssignable(sig,pin), connection = boardConnection(pin);
     if (err) result.push({type:'error',title:`GPIO${pin} · Invalid routing`,desc:err});
@@ -299,17 +341,17 @@ function pinButton(pin) {
   } else cls += ' reserved';
   const sig = state.assignments[pin];
   let title = isGPIO(pin) ? `GPIO${pin}` : describePin(pin);
-  if (sig) title += ` — ${sig}`;
-  if (isReserved(pin)) title += ` — ${reservation(pin).reason}`;
+  if (sig) title += isGPIOAssignment(sig) ? ` — ${assignmentLabel(pin,sig)} (${sig})` : ` — ${sig}`;
+  if (isReserved(pin)) title += ` — ${reservedSignal(pin)?.name || 'Reserved'}${reservedSignal(pin)?.description ? ` (${reservedSignal(pin).description})` : ''} — ${reservation(pin).reason}`;
   if (onBoardDetails(pin)) title += ` — ${onBoardDetails(pin)}`;
   if (state.armed && isGPIO(pin) && !checkAssignable(state.armed,pin)) title += ` — ${routeInfo(state.armed,pin).label}`;
   return `<button type="button" class="${cls}" ${isGPIO(pin)?`data-pin="${pin}"`:'disabled'} aria-label="${escapeHTML(title)}" title="${escapeHTML(title)}"><span class="pin-gpio">${escapeHTML(pin)}</span>${sig?'<span class="indicator"></span>':''}</button>`;
 }
 function rowPin(row,side) {
   const {pin,number} = row, sig = state.assignments[pin], reserved = isReserved(pin);
-  const label = sig ? shorthand(sig) : reserved ? 'PSRAM' : boardConnection(pin)?.label || '';
+  const label = sig ? assignmentLabel(pin,sig) : reserved ? reservedSignal(pin)?.name || 'Reserved' : boardConnection(pin)?.label || '';
   const labelClass = reserved ? 'bad-label' : sig ? 'assigned-label' : 'board-label';
-  const name = `<span class="pin-name ${side}"><span class="${labelClass}">${escapeHTML(label || '—')}</span></span>`;
+  const name = `<span class="pin-name ${side}" title="${escapeHTML(label)}"><span class="${labelClass}">${escapeHTML(label || '—')}</span></span>`;
   const numberHTML = `<span class="pin-number">${number}</span>`;
   return `<div class="pin-row ${side}">${side==='left'?name+pinButton(pin)+numberHTML:numberHTML+pinButton(pin)+name}</div>`;
 }
@@ -323,7 +365,11 @@ function renderDiagram() {
   $('routeHint').innerHTML = state.armed ? `Pick GPIO for <em>${state.armed}</em>${native.length?`<br/>P1 IO MUX: ${native.map(p=>`GPIO${p}`).join(', ')}`:''}` : 'Select a signal or pin to begin';
   const {left,right,bottom} = board.layout;
   let html = `<div class="board-layout ${board.kind==='module'?'module-layout':''}"><div class="pin-stack">${left.map(row=>rowPin(row,'left')).join('')}</div>${boardCore()}<div class="pin-stack">${right.map(row=>rowPin(row,'right')).join('')}</div></div>`;
-  if (bottom.length) html += `<div class="module-bottom-pins">${bottom.map(row=>pinButton(row.pin).replace('<span class="pin-gpio">',`<span class="pin-number">${row.number}</span><span class="pin-gpio">`)).join('')}</div>`;
+  if (bottom.length) html += `<div class="module-bottom-pins">${bottom.map(row=>{
+    const button = pinButton(row.pin).replace('<span class="pin-gpio">',`<span class="pin-number">${row.number}</span><span class="pin-gpio">`);
+    const label = assignmentLabel(row.pin);
+    return `<div class="bottom-pin-cell">${button}<span class="bottom-pin-label" title="${escapeHTML(label)}">${escapeHTML(label)}</span></div>`;
+  }).join('')}</div>`;
   $('pinDiagram').innerHTML = html;
   $('boardSubnote').textContent = board.presentation.subnote;
   $('pinDiagram').querySelectorAll('button[data-pin]').forEach(el=>el.onclick=()=>choosePin(Number(el.dataset.pin)));
@@ -344,6 +390,7 @@ function assign(sig,pin) {
   if (occupied===sig) {state.armed=null;render();return;}
   if (occupied && !window.confirm(`GPIO${pin} is currently assigned to ${occupied}. Replace it with ${sig}?`)) return;
   for (const [key,value] of Object.entries(state.assignments)) if (value===sig && !sig.startsWith('GPIO_')) delete state.assignments[key];
+  if (!isGPIOAssignment(sig)) delete state.gpioLabels[pin];
   state.assignments[pin] = sig;
   state.armed = null;
   state.selected = pin;
@@ -376,21 +423,46 @@ function renderInspector() {
     options += `<optgroup label="${group.name}">${valid.map(s=>`<option value="${s}" ${s===sig?'selected':''}>${signalLabel(s)}${group.id==='gpio'||group.id==='board'?'':` — ${routeInfo(s,pin).label}`}</option>`).join('')}</optgroup>`;
   }
   let html = `<div class="selected-top"><div class="selected-gpio"><small>${escapeHTML(pinLocation(pin))}</small>GPIO${pin}</div><span class="status-badge ${cls}">${status}</span></div><div class="pin-meta"><span>ESP32-S3</span><span>${pin<=21?'RTC-domain':'Digital pad'}</span></div><label class="form-title" for="pinFunction">Peripheral signal</label><select id="pinFunction" class="form-select" ${reserved?'disabled':''}>${options}</select><div class="form-hint">${reserved?'This pad is reserved by the selected module.':sig?`${signalLabel(sig)} is assigned here. Select another signal to replace it.`:'Choose a signal to bind to this GPIO, or select one in the left panel.'}</div>`;
+  if (isGPIOAssignment(sig) && !reserved) html += `<label class="form-title" for="gpioLabel">Signal name</label><input id="gpioLabel" class="form-select" type="text" maxlength="40" pattern="[A-Za-z][A-Za-z0-9_]*" value="${escapeHTML(state.gpioLabels[pin] || '')}" placeholder="${escapeHTML(`${shorthand(sig)}_${pin}`)}" autocomplete="off" spellcheck="false" aria-describedby="gpioLabelHint gpioLabelError gpioMacroHint"/><div class="form-hint" id="gpioLabelHint">Start with a letter; use letters, digits and single underscores, for example LIMIT_SWITCH. Leave empty to use ${shorthand(sig)}_${pin}.</div><div id="gpioLabelError" class="form-hint label-error hidden" role="alert"></div><div class="form-hint mono" id="gpioMacroHint"></div>`;
   if (sig && !reserved) {
     const route = routeInfo(sig,pin);
     html += `<div class="route-note"><strong>${route.label}</strong>${escapeHTML(route.note)}</div>`;
   }
   html += `<div class="inspect-actions"><button class="btn" id="clearPinBtn" ${!sig?'disabled':''}>Clear function</button><button class="btn ghost" id="jumpAssignedBtn">View table ↗</button></div>`;
-  if (reserved) html += `<div class="notice red"><span class="note-icon">⦸</span><span>${escapeHTML(reservation(pin).reason)}</span></div>`;
+  if (reserved) html += `<div class="notice red"><span class="note-icon">⦸</span><span>${reservedSignal(pin)?`<strong>${escapeHTML(reservedSignal(pin).name)}</strong> · ${escapeHTML(reservedSignal(pin).description)}. `:''}${escapeHTML(reservation(pin).reason)}</span></div>`;
   else if (strapping[pin]) html += `<div class="notice"><span class="note-icon">⚠</span><span>${strapping[pin]} Avoid driving unsafe levels during reset.</span></div>`;
   if (connection) html += `<div class="notice ${connection.signal==='RGB_LED'?'green':''}"><span class="note-icon">↳</span><span><strong>Board connection:</strong> ${escapeHTML(connection.description)}. This is a fixed PCB connection even if you change the configured signal.</span></div>`;
   html += hardwareCapabilities(pin);
   $('pinInspector').innerHTML = html;
   $('pinFunction').onchange = e=>{
     if (e.target.value) assign(e.target.value,pin);
-    else {delete state.assignments[pin];showToast(`GPIO${pin} cleared`);render();save();}
+    else {clearAssignment(pin);showToast(`GPIO${pin} cleared`);render();save();}
   };
-  $('clearPinBtn').onclick = ()=>{if (!state.assignments[pin]) return;delete state.assignments[pin];showToast(`GPIO${pin} cleared`);render();save();};
+  if ($('gpioLabel')) {
+    const rejectInvalidInsertion = (event,text)=>{
+      if (!text) return;
+      const input = $('gpioLabel');
+      const next = input.value.slice(0,input.selectionStart) + text + input.value.slice(input.selectionEnd);
+      if (/^(?:[A-Za-z][A-Za-z0-9_]*)?$/.test(next)) return;
+      event.preventDefault();
+      $('gpioLabelError').textContent = 'Start with a letter. Only letters, digits and underscores are allowed.';
+      $('gpioLabelError').classList.remove('hidden');
+    };
+    $('gpioLabel').onbeforeinput = e=>{if (!e.inputType.startsWith('delete')) rejectInvalidInsertion(e,e.data);};
+    $('gpioLabel').onpaste = e=>rejectInvalidInsertion(e,e.clipboardData.getData('text'));
+    $('gpioLabel').oninput = e=>{
+      const label = e.target.value;
+      if (label) state.gpioLabels[pin] = label;
+      else delete state.gpioLabels[pin];
+      updateGPIOLabelValidity(pin);
+      renderDiagram();renderAssignments();
+      const diags = diagnosticData();
+      $('sWarnings').textContent = diags.length;
+      renderDiagnostics(diags);save();
+    };
+    updateGPIOLabelValidity(pin);
+  }
+  $('clearPinBtn').onclick = ()=>{if (!state.assignments[pin]) return;clearAssignment(pin);showToast(`GPIO${pin} cleared`);render();save();};
   $('jumpAssignedBtn').onclick = ()=>{state.tab='assignments';render();};
 }
 function renderDiagnostics(diags) {
@@ -400,16 +472,16 @@ function renderDiagnostics(diags) {
 function renderAssignments() {
   const list = Object.entries(state.assignments).sort((a,b)=>Number(a[0])-Number(b[0]));
   let html = `<div class="assignment-tools"><h3>Signal assignments <span style="color:#879eb5;font-size:12px">(${list.length})</span></h3><div style="display:flex;gap:7px"><button class="btn tiny" id="csvBtn">Export CSV</button><button class="btn tiny ghost" id="clearAllBtn">Clear all</button></div></div>`;
-  if (list.length) html += `<table class="list-table"><thead><tr><th>Pin</th><th>Assigned signal</th><th>Category</th><th>Board context</th><th></th></tr></thead><tbody>${list.map(([pin,sig])=>`<tr><td><button class="btn tiny ghost" data-focus-pin="${pin}">GPIO${pin} ↗</button></td><td><span class="tag">${sig}</span></td><td>${groups.find(g=>g.id===signalGroup[sig])?.name || '—'}</td><td>${escapeHTML(reservation(Number(pin))?.reason || onBoardDetails(Number(pin)) || '—')}</td><td><button data-clear-pin="${pin}" class="btn tiny ghost" aria-label="Clear GPIO${pin}">×</button></td></tr>`).join('')}</tbody></table>`;
+  if (list.length) html += `<table class="list-table"><thead><tr><th>Pin</th><th>Assigned signal</th><th>Category</th><th>Board context</th><th></th></tr></thead><tbody>${list.map(([pin,sig])=>`<tr><td><button class="btn tiny ghost" data-focus-pin="${pin}">GPIO${pin} ↗</button></td><td><span class="tag">${escapeHTML(isGPIOAssignment(sig)?assignmentLabel(pin,sig):sig)}</span>${isGPIOAssignment(sig)?`<small class="assignment-mode">${signalLabel(sig)}</small>`:''}</td><td>${groups.find(g=>g.id===signalGroup[sig])?.name || '—'}</td><td>${escapeHTML(reservation(Number(pin))?.reason || onBoardDetails(Number(pin)) || '—')}</td><td><button data-clear-pin="${pin}" class="btn tiny ghost" aria-label="Clear GPIO${pin}">×</button></td></tr>`).join('')}</tbody></table>`;
   else html += '<div class="empty-state"><strong>No assigned signals</strong>Use the left peripheral list or select a pin to start mapping.</div>';
   $('assignmentsView').innerHTML = html;
   $('assignmentsView').querySelectorAll('[data-focus-pin]').forEach(e=>e.onclick=()=>{state.selected=Number(e.dataset.focusPin);state.tab='pinout';render();});
-  $('assignmentsView').querySelectorAll('[data-clear-pin]').forEach(e=>e.onclick=()=>{delete state.assignments[e.dataset.clearPin];render();save();});
+  $('assignmentsView').querySelectorAll('[data-clear-pin]').forEach(e=>e.onclick=()=>{clearAssignment(e.dataset.clearPin);render();save();});
   $('csvBtn').onclick = ()=>{
     const lines = ['GPIO,Signal,Category,Board connection',...list.map(([pin,sig])=>[pin,sig,signalGroup[sig],onBoardDetails(Number(pin)) || ''].map(x=>`"${String(x).replaceAll('"','""')}"`).join(','))];
     download('esp32_s3_pins.csv',lines.join('\r\n'),'text/csv');
   };
-  $('clearAllBtn').onclick = ()=>{if (window.confirm('Clear all signal assignments on this device?')) {state.assignments={};render();save();}};
+  $('clearAllBtn').onclick = ()=>{if (window.confirm('Clear all signal assignments on this device?')) {state.assignments={};state.gpioLabels={};render();save();}};
 }
 function render() {
   $('boardSelect').value = state.board;
@@ -429,22 +501,28 @@ function download(name,content,type) {
   setTimeout(()=>URL.revokeObjectURL(url),500);
 }
 function exportHeader() {
+  const issue = gpioLabelIssues()[0];
+  if (issue) throw new Error(`GPIO${issue.pin}: ${issue.error}`);
   const name = currentBoard().name.replaceAll('*/','* /').replace(/[\r\n]/g,' ');
   let header = `/*\n * ESP32-S3 pin assignments — ${name}\n * Generated by ESP32 PIN STUDIO.\n */\n#ifndef BSP_H\n#define BSP_H\n\n#include "driver/gpio.h"\n\n`;
   for (const [pin,sig] of Object.entries(state.assignments).sort((a,b)=>Number(a[0])-Number(b[0]))) {
-    const macro = (sig==='USB_D-'?'USB_DM':sig==='USB_D+'?'USB_DP':sig.startsWith('GPIO_')?`${sig}_${pin}`:sig).replace(/[^A-Z0-9_]/g,'_');
-    header += `#define PIN_${macro.padEnd(21,' ')} GPIO_NUM_${pin}\n`;
+    header += `#define ${macroName(pin,sig).padEnd(25,' ')} GPIO_NUM_${pin}\n`;
   }
   header += '\n/* Pin definitions only. Configure peripheral drivers separately.\n * Native IO MUX capability does not select the hardware route by itself.\n * Module memory connections and board wiring are fixed in hardware.\n */\n\n#endif /* BSP_H */\n';
   return header;
 }
 function openCode() {
-  modalCode=exportHeader();$('codeOutput').textContent=modalCode;$('modalBackdrop').classList.remove('hidden');$('closeModalBtn').focus();
+  try {modalCode=exportHeader();}
+  catch (error) {
+    state.selected=gpioLabelIssues()[0].pin;state.tab='pinout';state.armed=null;render();
+    $('gpioLabel').focus();$('gpioLabel').reportValidity();showToast(error.message,true);return;
+  }
+  $('codeOutput').textContent=modalCode;$('modalBackdrop').classList.remove('hidden');$('closeModalBtn').focus();
 }
 function closeCode() { $('modalBackdrop').classList.add('hidden');$('codeBtn').focus(); }
 function reset() {
   if (!window.confirm('Restore the default pin assignments for this board?')) return;
-  state.assignments={...currentBoard().default};state.armed=null;render();save();showToast('Board defaults restored');
+  state.assignments={...currentBoard().default};state.gpioLabels={};state.armed=null;render();save();showToast('Board defaults restored');
 }
 function setSidebar(open) { $('sidebar').classList.toggle('open',open);$('mobileMenu').setAttribute('aria-expanded',String(open)); }
 function install() {
@@ -457,7 +535,7 @@ function install() {
   }
   load();
   $('boardSelect').onchange=e=>{
-    state.board=e.target.value;state.assignments={...currentBoard().default};state.armed=null;
+    state.board=e.target.value;state.assignments={...currentBoard().default};state.gpioLabels={};state.armed=null;
     if (!exposedPins().includes(state.selected)) state.selected=exposedPins()[0];
     state.tab='pinout';render();save();showToast(`Loaded ${currentBoard().short} defaults`);
   };

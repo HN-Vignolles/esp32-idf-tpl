@@ -75,6 +75,12 @@
       unexposed,
       reserves: octal ? [{
         pins: [35, 36, 37],
+        // Datasheet Tables 2-4 and 2-14: native SPI0/1 signals used by Octal PSRAM.
+        signals: {
+          35: {name: 'SPIIO6', description: 'Octal PSRAM data bit 6 (DQ6)'},
+          36: {name: 'SPIIO7', description: 'Octal PSRAM data bit 7 (DQ7)'},
+          37: {name: 'SPIDQS', description: 'Octal PSRAM data strobe / data mask (DQS/DM)'}
+        },
         reason: 'These module pads are connected to Octal PSRAM and cannot be assigned to other functions.'
       }] : [],
       presentation: {

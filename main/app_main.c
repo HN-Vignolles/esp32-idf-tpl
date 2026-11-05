@@ -15,8 +15,13 @@
 #include <driver/gpio.h>
 #include <nvs_flash.h>
 
+#include "bsp.h"
 #include "prov.h"
 //#include "ota.h"
+
+#ifdef ESP32S3_DKC1
+#include "led_strip.h"
+#endif
 
 static const char *TAG = "app_main";
 
@@ -35,6 +40,24 @@ static void IRAM_ATTR gpio_isr_handler(void* arg)
 
 void app_main(void)
 {
+#ifdef ESP32S3_DKC1
+    led_strip_handle_t rgb_led;
+    const led_strip_config_t led_config = {
+        .strip_gpio_num = PIN_RGB_LED,
+        .max_leds = 1,
+        .led_model = LED_MODEL_SK6812,
+        .color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_GRB,
+    };
+    const led_strip_rmt_config_t rmt_config = {
+        .resolution_hz = 10 * 1000 * 1000,
+        .flags.with_dma = false,
+    };
+    ESP_ERROR_CHECK(led_strip_new_rmt_device(&led_config, &rmt_config, &rgb_led));
+    /* Orange while startup is in progress. */
+    ESP_ERROR_CHECK(led_strip_set_pixel(rgb_led, 0, 32, 16, 0));
+    ESP_ERROR_CHECK(led_strip_refresh(rgb_led));
+#endif
+
     /* NVS */
     esp_err_t ret = nvs_flash_init();  // Initialize NVS partition
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -63,13 +86,13 @@ void app_main(void)
     /* GPIO */
     gpio_config_t io_conf = {};
     io_conf.mode = GPIO_MODE_INPUT;
-    io_conf.pin_bit_mask = (1ULL<< GPIO_NUM_22);
+    io_conf.pin_bit_mask = (1ULL<< PIN_GPIO_ISR);
     io_conf.pull_down_en = 1;
     io_conf.pull_up_en = 0;
     io_conf.intr_type = GPIO_INTR_NEGEDGE;
     gpio_config(&io_conf);
     gpio_install_isr_service(0); // e.g. ESP_INTR_FLAG_NMI
-    gpio_isr_handler_add(GPIO_NUM_22, gpio_isr_handler, (void*)GPIO_NUM_22);
+    gpio_isr_handler_add(PIN_GPIO_ISR, gpio_isr_handler, (void*)PIN_GPIO_ISR);
 
     int cnt = 0, tab = 0;
     uint8_t write_buf[2] = { 0x42, 0x33 };
@@ -102,7 +125,15 @@ void app_main(void)
     }
     fclose(f);
 
+#ifdef ESP32S3_DKC1
+    ESP_ERROR_CHECK(led_strip_set_pixel(rgb_led, 0, 0, 32, 0));
+    ESP_ERROR_CHECK(led_strip_refresh(rgb_led));
+#endif
     do_provisioning();
+#ifdef ESP32S3_DKC1
+    ESP_ERROR_CHECK(led_strip_set_pixel(rgb_led, 0, 0, 0, 32));
+    ESP_ERROR_CHECK(led_strip_refresh(rgb_led));
+#endif
 
     while (1) {
         vTaskDelay(1000 / portTICK_PERIOD_MS);

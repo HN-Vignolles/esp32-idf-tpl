@@ -17,7 +17,7 @@ def main():
     if result.returncode != 0:
         sys.exit(1)
 
-    m = re.search(r"MAC: (..:){3}(..):(..):(..)", result.stdout)
+    m = re.search(r"MAC:.*?(..:){3}(..):(..):(..)", result.stdout)
     qr_str = f'{{"ver":"v1","name":"PROV_{(m[2] + m[3] + m[4]).upper()}","username":"{user}","pop":"{password}","transport":"softap"}}'
     print(qr_str)
     qr = qrcode.QRCode(version=5, error_correction=qrcode.constants.ERROR_CORRECT_L, border=10)

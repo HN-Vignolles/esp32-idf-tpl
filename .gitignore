@@ -5,3 +5,5 @@ __pycache__/
 qrcode.png
 sdkconfig
 dependencies.lock
+misc/
+sdkconfig.old
